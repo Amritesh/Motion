@@ -5,7 +5,6 @@
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "predeploy": "git add . && git commit -m \"Prepare for deploy\"",
     "deploy": "gh-pages -d ."
   },
   "repository": {
