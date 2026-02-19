@@ -31,13 +31,16 @@ class MotionSculpture {
         this.energyAlpha = 0.08;
         
         // Filtering
-        this.accAlpha = 0.05; // Much smoother to filter jitter
-        this.velocityDamping = 0.65; // Much stronger damping to stop drift
+        this.accAlpha = 0.12; // Smoother for car travel vibrations
+        this.velocityDamping = 0.92; // Stronger damping to prevent runaway drift
         this.positionDamping = 1.0;
+        this.stillnessFrames = 0;
+        this.accLowPass = new THREE.Vector3(0, 0, 0);
+        this.rotationMag = 0;
         
         // Constants
         this.MAX_POINTS = 20000;
-        this.SAMPLE_RATE = 40; // Higher sample rate for smoother curves
+        this.SAMPLE_RATE = 60; // Higher sample rate for smoother curves
         this.lastSampleTime = 0;
         
         this.initThree();
@@ -76,8 +79,14 @@ class MotionSculpture {
         this.scene.add(this.sculptureGroup);
 
         // Head Marker
-        const headGeo = new THREE.SphereGeometry(0.5, 16, 16);
-        const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+        const headGeo = new THREE.SphereGeometry(1.2, 32, 32); // Larger "globe"
+        const headMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0x00ffff,
+            emissiveIntensity: 0.5,
+            transparent: true,
+            opacity: 0.9
+        });
         this.headMarker = new THREE.Mesh(headGeo, headMat);
         this.headMarker.visible = false;
         this.scene.add(this.headMarker);
@@ -235,6 +244,7 @@ class MotionSculpture {
         this.resetData();
         this.isRecording = true;
         this.isPainting = true;
+        this.accLowPass.set(0, 0, 0);
         this.paintBtn.classList.add('active');
         this.createNewStroke();
         
@@ -268,39 +278,32 @@ class MotionSculpture {
         this._onDeviceMotion = (e) => {
             if (!this.isRecording) return;
             
-            // Raw acceleration with gravity can be used to better estimate orientation
-            // but for now let's focus on e.acceleration (linear acceleration)
             const a = e.acceleration;
             if (a) {
-                // Stronger noise filtering
-                const threshold = 0.1;
-                let ax = Math.abs(a.x) < threshold ? 0 : -a.x;
-                let ay = Math.abs(a.y) < threshold ? 0 : a.y;
-                let az = Math.abs(a.z) < threshold ? 0 : a.z;
-
-                // Scale for virtual space - reduced for better control (large motion -> small movement)
-                const scale = 4;
-                this.acc.x += this.accAlpha * (ax * scale - this.acc.x);
-                this.acc.y += this.accAlpha * (ay * scale - this.acc.y);
-                this.acc.z += this.accAlpha * (az * scale - this.acc.z);
+                // Store raw acceleration for physics update
+                this.latestAcc = { x: a.x, y: a.y, z: a.z };
             }
 
             const rr = e.rotationRate;
             if (rr) {
-                const energyRaw = Math.sqrt(rr.alpha*rr.alpha + rr.beta*rr.beta + rr.gamma*rr.gamma) / 60;
+                this.rotationMag = Math.sqrt(rr.alpha*rr.alpha + rr.beta*rr.beta + rr.gamma*rr.gamma);
+                const energyRaw = this.rotationMag / 60;
                 this.energyAvg = this.energyAvg + this.energyAlpha * (energyRaw - this.energyAvg);
             }
         };
 
         this._onDeviceOrientation = (e) => {
-            // Use orientation if we want to rotate the acceleration vector into world space
-            // Currently we are just using device-relative acceleration which is why it's "drifting"
-            // if you rotate the phone.
             if (e.alpha !== null) {
-                const alpha = THREE.MathUtils.degToRad(e.alpha);
-                const beta = THREE.MathUtils.degToRad(e.beta);
-                const gamma = THREE.MathUtils.degToRad(e.gamma);
-                this.orientation.setFromEuler(new THREE.Euler(beta, alpha, -gamma, 'YXZ'));
+                // More robust mapping for DeviceOrientation -> Three.js
+                const alpha = THREE.MathUtils.degToRad(e.alpha); // Z (0 to 360)
+                const beta = THREE.MathUtils.degToRad(e.beta);   // X (-180 to 180)
+                const gamma = THREE.MathUtils.degToRad(e.gamma); // Y (-90 to 90)
+                
+                if (!this._tmpEuler) this._tmpEuler = new THREE.Euler();
+                // 'ZXY' is often more stable for devices, or 'YXZ'
+                // We use YXZ but map correctly to World space
+                this._tmpEuler.set(beta, alpha, -gamma, 'YXZ');
+                this.orientation.setFromEuler(this._tmpEuler);
             }
         };
 
@@ -380,34 +383,65 @@ class MotionSculpture {
 
     updatePhysics(dt) {
         const energy = THREE.MathUtils.clamp(this.energyAvg, 0, 1);
+
+        if (this.latestAcc) {
+            const rawAcc = new THREE.Vector3(this.latestAcc.x, this.latestAcc.y, this.latestAcc.z);
+            
+            // Adaptive High-pass filter to remove sensor bias
+            // Faster adaptation initially to zero out the starting bias
+            const adaptSpeed = this.recordedData.length < 100 ? 0.05 : 0.005;
+            this.accLowPass.lerp(rawAcc, adaptSpeed);
+            rawAcc.sub(this.accLowPass);
+
+            // Apply filtering to acceleration in device space
+            const scale = 25.0;
+            this.acc.x += this.accAlpha * (rawAcc.x * scale - this.acc.x);
+            this.acc.y += this.accAlpha * (rawAcc.y * scale - this.acc.y);
+            this.acc.z += this.accAlpha * (rawAcc.z * scale - this.acc.z);
+            this.latestAcc = null;
+        } else {
+            this.acc.multiplyScalar(0.5); // Very aggressive decay if no data
+        }
         
         // Transform acceleration from device space to world space using orientation
         const worldAcc = this.acc.clone().applyQuaternion(this.orientation);
         
-        // Dynamic deadzone: higher to prevent drift when stationary
-        const deadzone = 0.8;
+        // ZVU (Zero Velocity Update) logic:
+        // If acceleration is low AND rotation is low, we are almost certainly stationary
+        const deadzone = 0.9;
         const accLen = worldAcc.length();
+        const isStationary = accLen < deadzone && this.rotationMag < 0.2;
 
-        if (accLen < deadzone) {
+        if (isStationary) {
             worldAcc.set(0, 0, 0);
-            // Aggressive braking when device is roughly at rest
-            this.vel.multiplyScalar(0.3);
+            this.stillnessFrames++;
+            
+            // Hard clamp after a very short period of stillness
+            if (this.stillnessFrames > 1) {
+                this.vel.set(0, 0, 0);
+                this.acc.set(0, 0, 0);
+            }
         } else {
-            // Subtract deadzone from magnitude to prevent "jumpy" starts
-            worldAcc.normalize().multiplyScalar(accLen - deadzone);
+            this.stillnessFrames = 0;
+            // Linear deadzone subtraction for smooth starts
+            worldAcc.normalize().multiplyScalar(accLen - (deadzone * 0.8));
         }
 
         // Integrate acceleration to velocity
-        this.vel.add(worldAcc.multiplyScalar(dt * 12));
+        this.vel.add(worldAcc.multiplyScalar(dt * 50));
         
-        // Velocity damping (friction)
+        // Velocity damping (friction) - prevents runaway velocity
         this.vel.multiplyScalar(this.velocityDamping);
 
-        // Snap to zero if very slow
-        if (this.vel.length() < 0.05) this.vel.set(0, 0, 0);
+        // More aggressive snapping to zero
+        if (this.vel.length() < 0.2) {
+            this.vel.set(0, 0, 0);
+        }
 
         // Integrate velocity to position
-        this.pos.add(this.vel.clone().multiplyScalar(dt * 60));
+        // Scale for car travel (mapping terrain and turns)
+        const moveStep = this.vel.clone().multiplyScalar(dt * 120);
+        this.pos.add(moveStep);
 
         // Record for replay
         if (this.isRecording) {
@@ -539,8 +573,9 @@ class MotionSculpture {
         this.lastFrameTime = now;
 
         if (this.isRecording) {
-            if (now - this.lastSampleTime > 1000 / this.SAMPLE_RATE) {
-                this.updatePhysics(dt);
+            const physicsDt = (now - this.lastSampleTime) / 1000;
+            if (physicsDt >= 1 / this.SAMPLE_RATE) {
+                this.updatePhysics(physicsDt);
                 this.lastSampleTime = now;
             }
         } else if (this.isReplaying) {
@@ -581,8 +616,13 @@ class MotionSculpture {
         // Head marker effect
         if (this.headMarker.visible) {
             this.headMarker.position.copy(this.pos);
-            const s = 1 + this.energyAvg * 2 + Math.sin(now * 0.01) * 0.2;
+            const s = (this.isPainting ? 1.5 : 1.0) + this.energyAvg * 2 + Math.sin(now * 0.01) * 0.2;
             this.headMarker.scale.set(s, s, s);
+            
+            if (this.headMarker.material) {
+                this.headMarker.material.color.set(this.isPainting ? this.currentColor : 0xffffff);
+                this.headMarker.material.emissiveIntensity = this.isPainting ? 1.0 : 0.2;
+            }
         }
 
         // Camera follow
