@@ -1,0 +1,144 @@
+:root {
+    --bg-color: #000000;
+    --accent-color: #ffffff;
+    --text-color: rgba(255, 255, 255, 0.9);
+    --btn-bg: rgba(255, 255, 255, 0.1);
+    --btn-border: rgba(255, 255, 255, 0.3);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-color);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--accent-color);
+}
+
+#canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Vignette effect */
+body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.6) 100%);
+    z-index: 5;
+}
+
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: opacity 0.4s ease;
+}
+
+.overlay-bottom {
+    position: fixed;
+    bottom: 40px;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    z-index: 10;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.message-box {
+    text-align: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+}
+
+.sub {
+    font-size: 0.9rem;
+    opacity: 0.6;
+    margin-top: 8px;
+}
+
+.btn-primary {
+    background: transparent;
+    border: 1px solid var(--btn-border);
+    color: var(--accent-color);
+    padding: 16px 48px;
+    font-size: 1.2rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 40px;
+    cursor: pointer;
+    backdrop-filter: blur(5px);
+    transition: all 0.3s ease;
+}
+
+.btn-primary:active {
+    background: var(--btn-bg);
+    transform: scale(0.95);
+}
+
+.btn-secondary {
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--accent-color);
+    padding: 10px 24px;
+    font-size: 0.9rem;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-icon {
+    position: fixed;
+    top: 20px;
+    top: calc(20px + env(safe-area-inset-top));
+    right: 20px;
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--accent-color);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 15;
+}
+
+.btn-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.hidden {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+@media (pointer: fine) {
+    /* Subtle hint that mouse controls are not the focus if on desktop */
+}

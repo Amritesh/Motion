@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Motion Sculpture</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="desktop-overlay" class="overlay hidden">
+        <div class="message-box">
+            <p>This experience is designed for mobile motion sensors.</p>
+            <p class="sub">Open on your phone.</p>
+        </div>
+    </div>
+
+    <div id="start-overlay" class="overlay">
+        <button id="start-btn" class="btn-primary">Start</button>
+    </div>
+
+    <div id="permission-overlay" class="overlay hidden">
+        <div class="message-box">
+            <p>Motion permission is required to draw the sculpture.</p>
+            <button id="retry-btn" class="btn-secondary">Enable & Retry</button>
+        </div>
+    </div>
+
+    <button id="stop-btn" class="btn-icon hidden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="6" y="6" width="12" height="12" rx="1"/>
+        </svg>
+    </button>
+
+    <div id="post-controls" class="overlay-bottom hidden">
+        <button id="replay-btn" class="btn-secondary">Replay</button>
+        <button id="reset-btn" class="btn-secondary">Reset</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
