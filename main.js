@@ -20,10 +20,9 @@ class MotionSculpture {
         // Physics state
         this.pos = new THREE.Vector3(0, 0, 0);
         this.vel = new THREE.Vector3(0, 0, 0);
-        this.currentQuat = new THREE.Quaternion();
-        this.targetQuat = new THREE.Quaternion();
+        this.acc = new THREE.Vector3(0, 0, 0);
         this.energyAvg = 0;
-        this.energyAlpha = 0.15; // EWMA alpha
+        this.energyAlpha = 0.08; // Smoother energy transitions
         
         // Constants
         this.MAX_POINTS = 20000;
@@ -222,42 +221,29 @@ class MotionSculpture {
     }
 
     setupMotionListeners() {
-        this._onDeviceOrientation = (e) => {
-            if (!this.isRecording) return;
-            
-            // Convert Euler to Quaternion
-            // alpha (z), beta (x), gamma (y)
-            const alpha = THREE.MathUtils.degToRad(e.alpha || 0);
-            const beta = THREE.MathUtils.degToRad(e.beta || 0);
-            const gamma = THREE.MathUtils.degToRad(e.gamma || 0);
-            
-            const euler = new THREE.Euler(beta, gamma, alpha, 'ZXY');
-            this.targetQuat.setFromEuler(euler);
-            
-            // Adjust for portrait/landscape if needed (simplified)
-            const screenOrientation = window.orientation || 0;
-            if (screenOrientation === 90) {
-                const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI/2);
-                this.targetQuat.multiplyQuaternions(q, this.targetQuat);
-            } else if (screenOrientation === -90) {
-                const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI/2);
-                this.targetQuat.multiplyQuaternions(q, this.targetQuat);
-            }
-        };
-
         this._onDeviceMotion = (e) => {
             if (!this.isRecording) return;
             
+            // Physical acceleration (no gravity)
+            const a = e.acceleration;
+            if (a) {
+                // Low-pass filter to remove sensor jitter
+                const alpha = 0.15;
+                // Scale acceleration to usable space units
+                const scale = 12;
+                this.acc.x += alpha * (-a.x * scale - this.acc.x);
+                this.acc.y += alpha * (a.y * scale - this.acc.y);
+                this.acc.z += alpha * (a.z * scale - this.acc.z);
+            }
+
             const rr = e.rotationRate;
             if (rr) {
                 // energy = norm(rotationRate)
-                const energyRaw = Math.sqrt(rr.alpha*rr.alpha + rr.beta*rr.beta + rr.gamma*rr.gamma) / 100;
-                // EWMA: energyAvg = energyAvg + alpha * (energy - energyAvg)
+                const energyRaw = Math.sqrt(rr.alpha*rr.alpha + rr.beta*rr.beta + rr.gamma*rr.gamma) / 60;
                 this.energyAvg = this.energyAvg + this.energyAlpha * (energyRaw - this.energyAvg);
             }
         };
 
-        window.addEventListener('deviceorientation', this._onDeviceOrientation);
         window.addEventListener('devicemotion', this._onDeviceMotion);
     }
 
@@ -268,7 +254,6 @@ class MotionSculpture {
         this.headMarker.visible = false;
         this.releaseWakeLock();
         
-        window.removeEventListener('deviceorientation', this._onDeviceOrientation);
         window.removeEventListener('devicemotion', this._onDeviceMotion);
     }
 
@@ -332,29 +317,27 @@ class MotionSculpture {
     }
 
     updatePhysics(dt) {
-        // Smooth quaternion
-        this.currentQuat.slerp(this.targetQuat, 0.2);
-        this.currentQuat.normalize();
-
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.currentQuat);
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.currentQuat);
-        
         const energy = THREE.MathUtils.clamp(this.energyAvg, 0, 1);
-        const baseStep = 0.5;
-        const step = baseStep * (0.4 + 1.6 * energy);
         
-        const desiredVel = forward.clone().multiplyScalar(step);
-        this.vel.lerp(desiredVel, 0.25);
+        // Deadzone for acceleration to avoid drift
+        const deadzone = 0.05;
+        const finalAcc = this.acc.clone();
+        if (finalAcc.length() < deadzone) finalAcc.set(0, 0, 0);
+
+        // Integrate acceleration to velocity
+        this.vel.add(finalAcc.multiplyScalar(dt * 4));
+        
+        // Velocity damping (friction) to stabilize and prevent infinite drift
+        const damping = 0.90;
+        this.vel.multiplyScalar(damping);
+
+        // Integrate velocity to position
         this.pos.add(this.vel);
-        
-        // Flow curl
-        const curl = new THREE.Vector3().crossVectors(forward, up).multiplyScalar(0.05 * (0.2 + energy));
-        this.pos.add(curl);
 
         // Record for replay
         if (this.isRecording) {
             this.recordedData.push({
-                q: this.targetQuat.clone(),
+                p: this.pos.clone(),
                 energy: this.energyAvg,
                 dt: dt
             });
@@ -436,8 +419,19 @@ class MotionSculpture {
                 tangent = p.clone().sub(points[i-1]).normalize();
             }
             
-            // Calculate arbitrary side vector using "up"
-            const side = new THREE.Vector3(0, 1, 0).cross(tangent).normalize();
+            // Stable side vector using Parallel Transport approximation
+            // This prevents the ribbon from twisting/shaking when direction changes
+            if (!this._lastSide || i === 0) {
+                this._lastSide = new THREE.Vector3(0, 1, 0);
+                if (Math.abs(tangent.y) > 0.9) this._lastSide.set(1, 0, 0);
+                this._lastSide.cross(tangent).normalize();
+            } else {
+                // Project previous side onto the new normal plane to maintain continuity
+                const binormal = tangent.clone().cross(this._lastSide).normalize();
+                this._lastSide.crossVectors(binormal, tangent).normalize();
+            }
+
+            const side = this._lastSide.clone();
             const width = (minWidth + energy * widthMult);
             
             const v1 = p.clone().add(side.clone().multiplyScalar(width));
@@ -476,9 +470,13 @@ class MotionSculpture {
         } else if (this.isReplaying) {
             if (this.replayIdx < this.recordedData.length) {
                 const data = this.recordedData[this.replayIdx];
-                this.targetQuat.copy(data.q);
+                this.pos.copy(data.p);
                 this.energyAvg = data.energy;
-                this.updatePhysics(data.dt);
+                
+                // Replay points directly as they were already stabilized
+                this.addPoint(this.pos.clone(), this.energyAvg);
+                this.emitParticles(this.pos, this.energyAvg);
+                
                 this.replayIdx++;
             } else {
                 this.isReplaying = false;
