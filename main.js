@@ -10,23 +10,34 @@ class MotionSculpture {
         this.canvas = document.getElementById('canvas');
         this.isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         this.isRecording = false;
+        this.isPainting = true;
         this.isReplaying = false;
         
         // Data storage
-        this.recordedData = []; // { q: Quaternion, energy: number, dt: number }
-        this.points = []; // Vector3
-        this.energies = []; // numbers
+        this.recordedData = []; // { p: Vector3, energy: number, isPainting: boolean, color: string }
+        this.points = []; // Array of arrays (each array is a stroke)
+        this.energies = [];
+        this.colors = [];
+        this.currentColor = "#00ffff";
         
         // Physics state
         this.pos = new THREE.Vector3(0, 0, 0);
         this.vel = new THREE.Vector3(0, 0, 0);
         this.acc = new THREE.Vector3(0, 0, 0);
+        this.gravity = new THREE.Vector3(0, 0, 0);
+        this.orientation = new THREE.Quaternion();
+        
         this.energyAvg = 0;
-        this.energyAlpha = 0.08; // Smoother energy transitions
+        this.energyAlpha = 0.08;
+        
+        // Filtering
+        this.accAlpha = 0.12; // Slightly smoother
+        this.velocityDamping = 0.82; // Even stronger damping to stop faster
+        this.positionDamping = 1.0; // Remove pull back to allow drawing anywhere in sky
         
         // Constants
         this.MAX_POINTS = 20000;
-        this.SAMPLE_RATE = 30;
+        this.SAMPLE_RATE = 40; // Higher sample rate for smoother curves
         this.lastSampleTime = 0;
         
         this.initThree();
@@ -78,8 +89,7 @@ class MotionSculpture {
         this.initStarfield();
 
         // Geometry containers
-        this.ribbonMesh = null;
-        this.coreMesh = null;
+        this.strokes = []; // { ribbon: Mesh, core: Mesh, points: [], energies: [], color: string }
 
         window.addEventListener('resize', () => this.onResize());
     }
@@ -170,6 +180,8 @@ class MotionSculpture {
     initUI() {
         this.startBtn = document.getElementById('start-btn');
         this.stopBtn = document.getElementById('stop-btn');
+        this.paintBtn = document.getElementById('paint-btn');
+        this.colorPicker = document.getElementById('color-picker');
         this.replayBtn = document.getElementById('replay-btn');
         this.resetBtn = document.getElementById('reset-btn');
         this.retryBtn = document.getElementById('retry-btn');
@@ -179,6 +191,34 @@ class MotionSculpture {
         this.replayBtn.addEventListener('click', () => this.replayExperience());
         this.resetBtn.addEventListener('click', () => this.resetExperience());
         this.retryBtn.addEventListener('click', () => this.startExperience());
+
+        this.paintBtn.addEventListener('click', () => {
+            this.isPainting = !this.isPainting;
+            this.paintBtn.classList.toggle('active', this.isPainting);
+            if (this.isPainting) {
+                this.createNewStroke();
+            }
+        });
+
+        this.colorPicker.addEventListener('input', (e) => {
+            this.currentColor = e.target.value;
+            if (this.isPainting) {
+                this.createNewStroke();
+            }
+        });
+    }
+
+    createNewStroke() {
+        if (!this.isRecording && !this.isReplaying) return;
+        
+        const stroke = {
+            points: [],
+            energies: [],
+            color: this.currentColor,
+            ribbonMesh: null,
+            coreMesh: null
+        };
+        this.strokes.push(stroke);
     }
 
     async startExperience() {
@@ -190,10 +230,14 @@ class MotionSculpture {
 
         document.getElementById('permission-overlay').classList.add('hidden');
         document.getElementById('start-overlay').classList.add('hidden');
-        this.stopBtn.classList.remove('hidden');
+        document.getElementById('controls').classList.remove('hidden');
         
         this.resetData();
         this.isRecording = true;
+        this.isPainting = true;
+        this.paintBtn.classList.add('active');
+        this.createNewStroke();
+        
         this.headMarker.visible = true;
         this.lastSampleTime = performance.now();
         
@@ -224,37 +268,56 @@ class MotionSculpture {
         this._onDeviceMotion = (e) => {
             if (!this.isRecording) return;
             
-            // Physical acceleration (no gravity)
+            // Raw acceleration with gravity can be used to better estimate orientation
+            // but for now let's focus on e.acceleration (linear acceleration)
             const a = e.acceleration;
             if (a) {
-                // Low-pass filter to remove sensor jitter
-                const alpha = 0.15;
-                // Scale acceleration to usable space units
-                const scale = 12;
-                this.acc.x += alpha * (-a.x * scale - this.acc.x);
-                this.acc.y += alpha * (a.y * scale - this.acc.y);
-                this.acc.z += alpha * (a.z * scale - this.acc.z);
+                // Stronger noise filtering
+                const threshold = 0.1;
+                let ax = Math.abs(a.x) < threshold ? 0 : -a.x;
+                let ay = Math.abs(a.y) < threshold ? 0 : a.y;
+                let az = Math.abs(a.z) < threshold ? 0 : a.z;
+
+                // Scale for virtual space
+                const scale = 15;
+                this.acc.x += this.accAlpha * (ax * scale - this.acc.x);
+                this.acc.y += this.accAlpha * (ay * scale - this.acc.y);
+                this.acc.z += this.accAlpha * (az * scale - this.acc.z);
             }
 
             const rr = e.rotationRate;
             if (rr) {
-                // energy = norm(rotationRate)
                 const energyRaw = Math.sqrt(rr.alpha*rr.alpha + rr.beta*rr.beta + rr.gamma*rr.gamma) / 60;
                 this.energyAvg = this.energyAvg + this.energyAlpha * (energyRaw - this.energyAvg);
             }
         };
 
+        this._onDeviceOrientation = (e) => {
+            // Use orientation if we want to rotate the acceleration vector into world space
+            // Currently we are just using device-relative acceleration which is why it's "drifting"
+            // if you rotate the phone.
+            if (e.alpha !== null) {
+                const alpha = THREE.MathUtils.degToRad(e.alpha);
+                const beta = THREE.MathUtils.degToRad(e.beta);
+                const gamma = THREE.MathUtils.degToRad(e.gamma);
+                this.orientation.setFromEuler(new THREE.Euler(beta, alpha, -gamma, 'YXZ'));
+            }
+        };
+
         window.addEventListener('devicemotion', this._onDeviceMotion);
+        window.addEventListener('deviceorientation', this._onDeviceOrientation);
     }
 
     stopExperience() {
         this.isRecording = false;
-        this.stopBtn.classList.add('hidden');
+        this.isPainting = false;
+        document.getElementById('controls').classList.add('hidden');
         document.getElementById('post-controls').classList.remove('hidden');
         this.headMarker.visible = false;
         this.releaseWakeLock();
         
         window.removeEventListener('devicemotion', this._onDeviceMotion);
+        window.removeEventListener('deviceorientation', this._onDeviceOrientation);
     }
 
     replayExperience() {
@@ -269,14 +332,13 @@ class MotionSculpture {
     resetExperience(keepRecord = false) {
         this.isRecording = false;
         this.isReplaying = false;
+        this.isPainting = false;
         this.headMarker.visible = false;
         this.sculptureGroup.clear();
-        this.ribbonMesh = null;
-        this.coreMesh = null;
-        this.points = [];
-        this.energies = [];
+        this.strokes = [];
         this.pos.set(0, 0, 0);
         this.vel.set(0, 0, 0);
+        this.acc.set(0, 0, 0);
         this.energyAvg = 0;
         
         if (!keepRecord) {
@@ -288,10 +350,10 @@ class MotionSculpture {
 
     resetData() {
         this.recordedData = [];
-        this.points = [];
-        this.energies = [];
+        this.strokes = [];
         this.pos.set(0, 0, 0);
         this.vel.set(0, 0, 0);
+        this.acc.set(0, 0, 0);
         this.energyAvg = 0;
         this.sculptureGroup.clear();
     }
@@ -319,72 +381,85 @@ class MotionSculpture {
     updatePhysics(dt) {
         const energy = THREE.MathUtils.clamp(this.energyAvg, 0, 1);
         
-        // Deadzone for acceleration to avoid drift
-        const deadzone = 0.05;
-        const finalAcc = this.acc.clone();
-        if (finalAcc.length() < deadzone) finalAcc.set(0, 0, 0);
+        // Transform acceleration from device space to world space using orientation
+        const worldAcc = this.acc.clone().applyQuaternion(this.orientation);
+        
+        // Dynamic deadzone: higher when moving slow to prevent jitter, lower when moving fast
+        const deadzone = 0.45;
+        const accLen = worldAcc.length();
+
+        if (accLen < deadzone) {
+            worldAcc.set(0, 0, 0);
+            // Aggressive braking when device is roughly at rest
+            this.vel.multiplyScalar(0.7);
+        } else {
+            // Subtract deadzone from magnitude to prevent "jumpy" starts
+            worldAcc.normalize().multiplyScalar(accLen - deadzone);
+        }
 
         // Integrate acceleration to velocity
-        this.vel.add(finalAcc.multiplyScalar(dt * 4));
+        this.vel.add(worldAcc.multiplyScalar(dt * 12));
         
-        // Velocity damping (friction) to stabilize and prevent infinite drift
-        const damping = 0.90;
-        this.vel.multiplyScalar(damping);
+        // Velocity damping (friction)
+        this.vel.multiplyScalar(this.velocityDamping);
+
+        // Snap to zero if very slow
+        if (this.vel.length() < 0.05) this.vel.set(0, 0, 0);
 
         // Integrate velocity to position
-        this.pos.add(this.vel);
+        this.pos.add(this.vel.clone().multiplyScalar(dt * 60));
 
         // Record for replay
         if (this.isRecording) {
             this.recordedData.push({
                 p: this.pos.clone(),
                 energy: this.energyAvg,
+                isPainting: this.isPainting,
+                color: this.currentColor,
                 dt: dt
             });
         }
 
-        this.addPoint(this.pos.clone(), energy);
+        if (this.isPainting) {
+            this.addPoint(this.pos.clone(), energy);
+        }
         this.emitParticles(this.pos, energy);
     }
 
     addPoint(p, e) {
-        this.points.push(p);
-        this.energies.push(e);
-
-        if (this.points.length > this.MAX_POINTS) {
-            // Decimate: remove every 2nd point to keep performance
-            const newPoints = [];
-            const newEnergies = [];
-            for (let i = 0; i < this.points.length; i += 2) {
-                newPoints.push(this.points[i]);
-                newEnergies.push(this.energies[i]);
-            }
-            this.points = newPoints;
-            this.energies = newEnergies;
+        if (this.strokes.length === 0) this.createNewStroke();
+        
+        const currentStroke = this.strokes[this.strokes.length - 1];
+        
+        // Only add point if it's far enough from the last point (coarser voxels/points)
+        if (currentStroke.points.length > 0) {
+            const lastP = currentStroke.points[currentStroke.points.length - 1];
+            if (p.distanceTo(lastP) < 0.3) return;
         }
 
-        // Rebuild geometry every ~10 samples for performance
-        if (this.points.length % 10 === 0) {
-            this.updateGeometry();
-        }
+        currentStroke.points.push(p);
+        currentStroke.energies.push(e);
+
+        // Rebuild geometry for the current stroke
+        this.updateStrokeGeometry(currentStroke);
     }
 
-    updateGeometry() {
-        if (this.points.length < 2) return;
+    updateStrokeGeometry(stroke) {
+        if (stroke.points.length < 2) return;
 
-        const ribbonGeometry = this.createRibbonGeometry(this.points, this.energies, 1.2, 0.2);
-        const coreGeometry = this.createRibbonGeometry(this.points, this.energies, 0.4, 0.1);
+        const ribbonGeometry = this.createRibbonGeometry(stroke.points, stroke.energies, 1.2, 0.2);
+        const coreGeometry = this.createRibbonGeometry(stroke.points, stroke.energies, 0.4, 0.1);
 
-        if (!this.ribbonMesh) {
+        if (!stroke.ribbonMesh) {
             const mat = new THREE.MeshBasicMaterial({
-                color: 0x00ffff,
+                color: new THREE.Color(stroke.color),
                 transparent: true,
                 opacity: 0.5,
                 side: THREE.DoubleSide,
                 blending: THREE.AdditiveBlending
             });
-            this.ribbonMesh = new THREE.Mesh(ribbonGeometry, mat);
-            this.sculptureGroup.add(this.ribbonMesh);
+            stroke.ribbonMesh = new THREE.Mesh(ribbonGeometry, mat);
+            this.sculptureGroup.add(stroke.ribbonMesh);
 
             const coreMat = new THREE.MeshBasicMaterial({
                 color: 0xffffff,
@@ -393,13 +468,13 @@ class MotionSculpture {
                 side: THREE.DoubleSide,
                 blending: THREE.AdditiveBlending
             });
-            this.coreMesh = new THREE.Mesh(coreGeometry, coreMat);
-            this.sculptureGroup.add(this.coreMesh);
+            stroke.coreMesh = new THREE.Mesh(coreGeometry, coreMat);
+            this.sculptureGroup.add(stroke.coreMesh);
         } else {
-            this.ribbonMesh.geometry.dispose();
-            this.ribbonMesh.geometry = ribbonGeometry;
-            this.coreMesh.geometry.dispose();
-            this.coreMesh.geometry = coreGeometry;
+            stroke.ribbonMesh.geometry.dispose();
+            stroke.ribbonMesh.geometry = ribbonGeometry;
+            stroke.coreMesh.geometry.dispose();
+            stroke.coreMesh.geometry = coreGeometry;
         }
     }
 
@@ -470,11 +545,20 @@ class MotionSculpture {
         } else if (this.isReplaying) {
             if (this.replayIdx < this.recordedData.length) {
                 const data = this.recordedData[this.replayIdx];
+                
+                // Handle painting toggle and color changes during replay
+                if (data.isPainting !== this.isPainting || data.color !== this.currentColor) {
+                    this.isPainting = data.isPainting;
+                    this.currentColor = data.color;
+                    if (this.isPainting) this.createNewStroke();
+                }
+
                 this.pos.copy(data.p);
                 this.energyAvg = data.energy;
                 
-                // Replay points directly as they were already stabilized
-                this.addPoint(this.pos.clone(), this.energyAvg);
+                if (this.isPainting) {
+                    this.addPoint(this.pos.clone(), this.energyAvg);
+                }
                 this.emitParticles(this.pos, this.energyAvg);
                 
                 this.replayIdx++;
@@ -501,14 +585,20 @@ class MotionSculpture {
         }
 
         // Camera follow
-        if (this.points.length > 0) {
+        const allPoints = this.strokes.flatMap(s => s.points);
+        if (allPoints.length > 0 || this.isRecording) {
             const center = new THREE.Vector3();
-            // Sample a few points for center to avoid heavy computation
-            const sampleCount = Math.min(this.points.length, 10);
-            for(let i=0; i<sampleCount; i++) {
-                center.add(this.points[Math.floor(Math.random() * this.points.length)]);
+            
+            if (this.isRecording || this.isReplaying) {
+                center.copy(this.pos);
+            } else if (allPoints.length > 0) {
+                // Sample a few points for center to avoid heavy computation
+                const sampleCount = Math.min(allPoints.length, 10);
+                for(let i=0; i<sampleCount; i++) {
+                    center.add(allPoints[Math.floor(Math.random() * allPoints.length)]);
+                }
+                center.divideScalar(sampleCount);
             }
-            center.divideScalar(sampleCount);
             
             // Slow camera drift
             const camTarget = center.clone();

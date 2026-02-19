@@ -110,27 +110,62 @@ body::after {
     transition: all 0.3s ease;
 }
 
-.btn-icon {
+.controls-overlay {
     position: fixed;
     top: 20px;
     top: calc(20px + env(safe-area-inset-top));
+    left: 20px;
     right: 20px;
-    background: var(--btn-bg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.btn-control {
+    background: rgba(0, 0, 0, 0.6);
     border: 1px solid var(--btn-border);
-    color: var(--accent-color);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    pointer-events: auto;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+}
+
+.btn-control.active {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #00ffff;
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+}
+
+.btn-control.stop {
+    background: rgba(255, 50, 50, 0.2);
+    border-color: rgba(255, 50, 50, 0.5);
+}
+
+.color-picker-container {
+    pointer-events: auto;
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    z-index: 15;
+    overflow: hidden;
+    border: 2px solid white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
 
-.btn-icon svg {
-    width: 20px;
-    height: 20px;
+#color-picker {
+    width: 150%;
+    height: 150%;
+    margin: -25%;
+    cursor: pointer;
+    border: none;
+    background: none;
 }
 
 .hidden {
