@@ -31,9 +31,9 @@ class MotionSculpture {
         this.energyAlpha = 0.08;
         
         // Filtering
-        this.accAlpha = 0.12; // Slightly smoother
-        this.velocityDamping = 0.82; // Even stronger damping to stop faster
-        this.positionDamping = 1.0; // Remove pull back to allow drawing anywhere in sky
+        this.accAlpha = 0.05; // Much smoother to filter jitter
+        this.velocityDamping = 0.65; // Much stronger damping to stop drift
+        this.positionDamping = 1.0;
         
         // Constants
         this.MAX_POINTS = 20000;
@@ -278,8 +278,8 @@ class MotionSculpture {
                 let ay = Math.abs(a.y) < threshold ? 0 : a.y;
                 let az = Math.abs(a.z) < threshold ? 0 : a.z;
 
-                // Scale for virtual space
-                const scale = 15;
+                // Scale for virtual space - reduced for better control (large motion -> small movement)
+                const scale = 4;
                 this.acc.x += this.accAlpha * (ax * scale - this.acc.x);
                 this.acc.y += this.accAlpha * (ay * scale - this.acc.y);
                 this.acc.z += this.accAlpha * (az * scale - this.acc.z);
@@ -384,14 +384,14 @@ class MotionSculpture {
         // Transform acceleration from device space to world space using orientation
         const worldAcc = this.acc.clone().applyQuaternion(this.orientation);
         
-        // Dynamic deadzone: higher when moving slow to prevent jitter, lower when moving fast
-        const deadzone = 0.45;
+        // Dynamic deadzone: higher to prevent drift when stationary
+        const deadzone = 0.8;
         const accLen = worldAcc.length();
 
         if (accLen < deadzone) {
             worldAcc.set(0, 0, 0);
             // Aggressive braking when device is roughly at rest
-            this.vel.multiplyScalar(0.7);
+            this.vel.multiplyScalar(0.3);
         } else {
             // Subtract deadzone from magnitude to prevent "jumpy" starts
             worldAcc.normalize().multiplyScalar(accLen - deadzone);
@@ -420,7 +420,8 @@ class MotionSculpture {
             });
         }
 
-        if (this.isPainting) {
+        // Only draw if we are actually moving significantly
+        if (this.isPainting && this.vel.length() > 0.1) {
             this.addPoint(this.pos.clone(), energy);
         }
         this.emitParticles(this.pos, energy);
