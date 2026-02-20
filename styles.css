@@ -162,6 +162,11 @@ body::after {
 }
 
 .btn-control.stop {
+    background: rgba(0, 255, 255, 0.1);
+    border-color: rgba(0, 255, 255, 0.3);
+}
+
+.btn-control.reset {
     background: rgba(255, 50, 50, 0.1);
     border-color: rgba(255, 50, 50, 0.3);
 }
