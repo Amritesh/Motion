@@ -1,9 +1,10 @@
 :root {
-    --bg-color: #000000;
+    --bg-color: #000814;
     --accent-color: #ffffff;
     --text-color: rgba(255, 255, 255, 0.9);
-    --btn-bg: rgba(255, 255, 255, 0.1);
-    --btn-border: rgba(255, 255, 255, 0.3);
+    --btn-bg: rgba(255, 255, 255, 0.05);
+    --btn-border: rgba(255, 255, 255, 0.15);
+    --primary-glow: #00ffff;
 }
 
 * {
@@ -48,9 +49,12 @@ body::after {
     width: 100%;
     height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     z-index: 10;
+    background: rgba(0, 8, 20, 0.8);
+    backdrop-filter: blur(10px);
     transition: opacity 0.4s ease;
 }
 
@@ -61,41 +65,40 @@ body::after {
     width: 100%;
     display: flex;
     justify-content: center;
-    gap: 20px;
+    gap: 15px;
     z-index: 10;
     padding-bottom: env(safe-area-inset-bottom);
 }
 
 .message-box {
     text-align: center;
-    padding: 20px;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(10px);
-    border-radius: 12px;
+    padding: 30px;
+    max-width: 80%;
 }
 
 .sub {
     font-size: 0.9rem;
-    opacity: 0.6;
-    margin-top: 8px;
+    opacity: 0.5;
+    margin-top: 12px;
+    letter-spacing: 0.05em;
 }
 
 .btn-primary {
     background: transparent;
     border: 1px solid var(--btn-border);
     color: var(--accent-color);
-    padding: 16px 48px;
-    font-size: 1.2rem;
-    letter-spacing: 0.1em;
+    padding: 18px 50px;
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
     border-radius: 40px;
     cursor: pointer;
-    backdrop-filter: blur(5px);
     transition: all 0.3s ease;
+    box-shadow: 0 0 20px rgba(255,255,255,0.05);
 }
 
 .btn-primary:active {
-    background: var(--btn-bg);
+    background: rgba(255,255,255,0.1);
     transform: scale(0.95);
 }
 
@@ -103,60 +106,79 @@ body::after {
     background: var(--btn-bg);
     border: 1px solid var(--btn-border);
     color: var(--accent-color);
-    padding: 10px 24px;
-    font-size: 0.9rem;
-    border-radius: 20px;
+    padding: 12px 30px;
+    font-size: 0.85rem;
+    border-radius: 25px;
     cursor: pointer;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     transition: all 0.3s ease;
 }
 
 .controls-overlay {
     position: fixed;
-    top: 20px;
-    top: calc(20px + env(safe-area-inset-top));
+    bottom: 40px;
+    bottom: calc(40px + env(safe-area-inset-bottom));
     left: 20px;
     right: 20px;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
+    gap: 15px;
     z-index: 20;
     pointer-events: none;
 }
 
 .btn-control {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.5);
     border: 1px solid var(--btn-border);
     color: white;
-    padding: 10px 20px;
-    border-radius: 30px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
     cursor: pointer;
     pointer-events: auto;
-    backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
+    backdrop-filter: blur(15px);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.btn-control .icon {
+    font-size: 1.5rem;
+}
+
+.btn-control .label {
+    display: none;
 }
 
 .btn-control.active {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: #00ffff;
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+    background: rgba(0, 255, 255, 0.15);
+    border-color: var(--primary-glow);
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+    transform: scale(1.1);
 }
 
 .btn-control.stop {
-    background: rgba(255, 50, 50, 0.2);
-    border-color: rgba(255, 50, 50, 0.5);
+    background: rgba(255, 50, 50, 0.1);
+    border-color: rgba(255, 50, 50, 0.3);
 }
 
 .color-picker-container {
     pointer-events: auto;
-    width: 44px;
-    height: 44px;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
     overflow: hidden;
     border: 2px solid white;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    transition: transform 0.2s ease;
+}
+
+.color-picker-container:active {
+    transform: scale(0.9);
 }
 
 #color-picker {
@@ -172,8 +194,4 @@ body::after {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
-}
-
-@media (pointer: fine) {
-    /* Subtle hint that mouse controls are not the focus if on desktop */
 }
