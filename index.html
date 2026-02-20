@@ -40,19 +40,23 @@
         <div class="color-picker-container">
             <input type="color" id="color-picker" value="#00ffff">
         </div>
-        <button id="stop-btn" class="btn-control stop">
-            <span class="icon">⏹️</span>
+        <button id="stop-btn" class="btn-control stop" title="View in 3D">
+            <span class="icon">👁️</span>
+        </button>
+        <button id="reset-btn-main" class="btn-control reset" title="Clear All">
+            <span class="icon">🗑️</span>
         </button>
     </div>
 
     <div id="post-controls" class="overlay-bottom hidden">
-        <button id="reset-btn" class="btn-secondary">Clear & Restart</button>
+        <button id="reset-btn" class="btn-secondary">Back to Drawing</button>
     </div>
 
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
             }
         }
     </script>

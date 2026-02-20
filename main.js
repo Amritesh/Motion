@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /**
  * MOTION SCULPTURE - Refactored
@@ -19,8 +20,9 @@ class MotionSculpture {
         this.targetQ = new THREE.Quaternion();
         this.smoothQ = new THREE.Quaternion();
         this.initialQ = null;
-        this.pos = new THREE.Vector3(0, 0, -20);
+        this.pos = new THREE.Vector3(0, 0, -8);
         this.energyAvg = 0.2;
+        this.isStopped = false;
         
         this.initThree();
         this.initUI();
@@ -46,9 +48,56 @@ class MotionSculpture {
         this.scene.add(this.sculptureGroup);
 
         this.initStarfield();
-        this.initParticles();
+        this.initPointerGlobe();
+        this.initKaleidoscopeUI();
+
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enabled = false;
 
         window.addEventListener('resize', () => this.onResize());
+    }
+
+    initPointerGlobe() {
+        this.pointerGlobe = new THREE.Group();
+        
+        const coreGeo = new THREE.SphereGeometry(0.15, 16, 16);
+        const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const core = new THREE.Mesh(coreGeo, coreMat);
+        
+        const glowGeo = new THREE.SphereGeometry(0.4, 16, 16);
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.4,
+            blending: THREE.AdditiveBlending
+        });
+        const glow = new THREE.Mesh(glowGeo, glowMat);
+        
+        this.pointerLight = new THREE.PointLight(0x00ffff, 2, 10);
+        
+        this.pointerGlobe.add(core);
+        this.pointerGlobe.add(glow);
+        this.pointerGlobe.add(this.pointerLight);
+        this.scene.add(this.pointerGlobe);
+        
+        this.pointerGlow = glow;
+    }
+
+    initKaleidoscopeUI() {
+        this.kaleidoscopeUI = new THREE.Group();
+        const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1 });
+        for (let i = 0; i < this.folds; i++) {
+            const angle = (i * Math.PI * 2) / this.folds;
+            const geo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(Math.cos(angle) * 20, Math.sin(angle) * 20, 0)
+            ]);
+            const line = new THREE.Line(geo, mat);
+            line.position.z = -10;
+            this.kaleidoscopeUI.add(line);
+        }
+        this.scene.add(this.kaleidoscopeUI);
+        this.kaleidoscopeUI.visible = false;
     }
 
     initStarfield() {
@@ -63,52 +112,6 @@ class MotionSculpture {
         this.scene.add(this.starfield);
     }
 
-    initParticles() {
-        this.particleCount = 500;
-        const geo = new THREE.BufferGeometry();
-        const pos = new Float32Array(this.particleCount * 3);
-        for (let i = 0; i < this.particleCount * 3; i++) pos[i] = 10000;
-        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        this.particles = new THREE.Points(geo, new THREE.PointsMaterial({
-            color: 0x00ffff, size: 0.2, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending
-        }));
-        this.particleVelocities = Array.from({ length: this.particleCount }, () => new THREE.Vector3());
-        this.particleLifetimes = new Float32Array(this.particleCount);
-        this.scene.add(this.particles);
-        this.nextParticleIdx = 0;
-    }
-
-    emitParticles(pos, energy) {
-        const count = Math.floor(1 + energy * 3);
-        const positions = this.particles.geometry.attributes.position.array;
-        for (let i = 0; i < count; i++) {
-            const idx = this.nextParticleIdx;
-            const offset = idx * 3;
-            positions[offset] = pos.x;
-            positions[offset + 1] = pos.y;
-            positions[offset + 2] = pos.z;
-            this.particleVelocities[idx].set((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
-            this.particleLifetimes[idx] = 1.0;
-            this.nextParticleIdx = (this.nextParticleIdx + 1) % this.particleCount;
-        }
-        this.particles.geometry.attributes.position.needsUpdate = true;
-    }
-
-    updateParticles(dt) {
-        const positions = this.particles.geometry.attributes.position.array;
-        for (let i = 0; i < this.particleCount; i++) {
-            if (this.particleLifetimes[i] > 0) {
-                const offset = i * 3;
-                positions[offset] += this.particleVelocities[i].x;
-                positions[offset + 1] += this.particleVelocities[i].y;
-                positions[offset + 2] += this.particleVelocities[i].z;
-                this.particleLifetimes[i] -= dt * 0.5;
-            } else {
-                positions[i * 3] = 10000;
-            }
-        }
-        this.particles.geometry.attributes.position.needsUpdate = true;
-    }
 
     initUI() {
         this.startBtn = document.getElementById('start-btn');
@@ -117,11 +120,17 @@ class MotionSculpture {
         this.kaleidoscopeBtn = document.getElementById('kaleidoscope-btn');
         this.colorPicker = document.getElementById('color-picker');
         this.resetBtn = document.getElementById('reset-btn');
+        this.resetBtnMain = document.getElementById('reset-btn-main');
         this.retryBtn = document.getElementById('retry-btn');
 
         this.startBtn.addEventListener('click', () => this.startExperience());
         this.stopBtn.addEventListener('click', () => this.stopExperience());
-        this.resetBtn.addEventListener('click', () => this.resetExperience());
+        this.resetBtn.addEventListener('click', () => this.resumeExperience());
+        this.resetBtnMain.addEventListener('click', () => {
+            if (confirm("Clear all drawings and restart?")) {
+                this.resetExperience();
+            }
+        });
         this.retryBtn.addEventListener('click', () => this.startExperience());
 
         this.paintBtn.addEventListener('click', () => {
@@ -134,6 +143,7 @@ class MotionSculpture {
             this.kaleidoscopeBtn.addEventListener('click', () => {
                 this.isKaleidoscope = !this.isKaleidoscope;
                 this.kaleidoscopeBtn.classList.toggle('active', this.isKaleidoscope);
+                this.kaleidoscopeUI.visible = this.isKaleidoscope;
             });
         }
 
@@ -152,6 +162,8 @@ class MotionSculpture {
         document.getElementById('permission-overlay').classList.add('hidden');
         document.getElementById('start-overlay').classList.add('hidden');
         document.getElementById('controls').classList.remove('hidden');
+        this.isStopped = false;
+        this.controls.enabled = false;
         this.setupMotionListeners();
     }
 
@@ -189,14 +201,54 @@ class MotionSculpture {
     }
 
     stopExperience() {
+        this.isStopped = true;
+        this.isPainting = false;
+        this.paintBtn.classList.remove('active');
         document.getElementById('controls').classList.add('hidden');
         document.getElementById('post-controls').classList.remove('hidden');
+        
+        this.pointerGlobe.visible = false;
+        this.kaleidoscopeUI.visible = false;
+        
+        this.enableOrbitMode();
+    }
+
+    enableOrbitMode() {
+        this.controls.enabled = true;
+        
+        const box = new THREE.Box3().setFromObject(this.sculptureGroup);
+        if (box.isEmpty()) return;
+        
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        
+        const fov = this.camera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+        cameraZ *= 1.5;
+        
+        this.camera.position.set(center.x, center.y, center.z + cameraZ);
+        this.camera.lookAt(center);
+        this.controls.target.copy(center);
+        this.controls.update();
+    }
+
+    resumeExperience() {
+        this.isStopped = false;
+        this.controls.enabled = false;
+        this.pointerGlobe.visible = true;
+        this.kaleidoscopeUI.visible = this.isKaleidoscope;
+        this.camera.position.set(0, 0, 0);
+        this.camera.quaternion.set(0, 0, 0, 1);
+        document.getElementById('post-controls').classList.add('hidden');
+        document.getElementById('controls').classList.remove('hidden');
     }
 
     resetExperience() {
         this.sculptureGroup.clear();
         this.strokes = [];
-        document.getElementById('post-controls').classList.add('hidden');
+        this.resumeExperience();
+        document.getElementById('controls').classList.add('hidden');
         document.getElementById('start-overlay').classList.remove('hidden');
     }
 
@@ -207,11 +259,23 @@ class MotionSculpture {
     }
 
     updatePointer(dt) {
+        if (this.isStopped) return;
         this.smoothQ.slerp(this.targetQ, this.isPainting ? 0.35 : 0.12);
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.smoothQ);
-        this.pos.copy(dir.multiplyScalar(20));
-        if (this.isPainting) this.addPoint(this.pos.clone(), this.energyAvg);
-        this.emitParticles(this.pos, this.energyAvg);
+        
+        // Restrict to region: clamp the direction slightly or just use distance
+        const dist = 8;
+        this.pos.copy(dir.multiplyScalar(dist));
+        
+        this.pointerGlobe.position.copy(this.pos);
+        this.pointerLight.color.set(this.currentColor);
+        this.pointerGlow.material.color.set(this.currentColor);
+
+        if (this.isPainting) {
+            // Further restriction: only draw if within a "drawing volume"
+            // For now, distance control is the main restriction
+            this.addPoint(this.pos.clone(), this.energyAvg);
+        }
     }
 
     createNewStroke() {
@@ -240,8 +304,8 @@ class MotionSculpture {
             });
             stroke.meshes = [];
         }
-        const ribbonGeo = this.createRibbonGeometry(stroke.points, stroke.energies, 1.2, 0.2);
-        const coreGeo = this.createRibbonGeometry(stroke.points, stroke.energies, 0.4, 0.1);
+        const ribbonGeo = this.createRibbonGeometry(stroke.points, stroke.energies, 2.5, 0.4);
+        const coreGeo = this.createRibbonGeometry(stroke.points, stroke.energies, 0.8, 0.2);
         for (let i = 0; i < folds; i++) {
             if (!stroke.meshes[i]) {
                 const ribbonMesh = new THREE.Mesh(ribbonGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(stroke.color), transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
@@ -300,8 +364,13 @@ class MotionSculpture {
         this.lastFrameTime = now;
         this.updatePointer(dt);
         if (this.starfield) { this.starfield.rotation.y += 0.0005; this.starfield.rotation.x += 0.0002; }
-        this.updateParticles(dt);
-        this.camera.quaternion.copy(this.smoothQ);
+        
+        if (!this.isStopped) {
+            this.camera.quaternion.copy(this.smoothQ);
+        } else {
+            this.controls.update();
+        }
+        
         this.renderer.render(this.scene, this.camera);
     }
 }
