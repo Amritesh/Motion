@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Motion Sculpture</title>
+    <title>AirDraw 3D</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="stylesheet" href="styles.css">
@@ -14,45 +14,45 @@
     <div id="desktop-overlay" class="overlay hidden">
         <div class="message-box">
             <p>This experience is designed for mobile motion sensors.</p>
-            <p class="sub">Open on your phone.</p>
+            <p class="sub">Open on your phone to draw in air.</p>
         </div>
     </div>
 
     <div id="start-overlay" class="overlay">
-        <button id="start-btn" class="btn-primary">Start</button>
+        <h1 style="margin-bottom: 20px; letter-spacing: 0.5em; font-size: 1.2rem; opacity: 0.8;">AIRDRAW 3D</h1>
+        <button id="start-btn" class="btn-primary">Start Experience</button>
     </div>
 
     <div id="permission-overlay" class="overlay hidden">
         <div class="message-box">
-            <p>Motion permission is required to draw the sculpture.</p>
-            <button id="retry-btn" class="btn-secondary">Enable & Retry</button>
+            <p>Motion permission is required to draw in 3D space.</p>
+            <button id="retry-btn" class="btn-secondary" style="margin-top: 20px;">Enable & Retry</button>
         </div>
     </div>
 
     <div id="controls" class="controls-overlay hidden">
-        <button id="paint-btn" class="btn-control active">
+        <button id="paint-btn" class="btn-control">
             <span class="icon">✏️</span>
-            <span class="label">Paint</span>
+        </button>
+        <button id="kaleidoscope-btn" class="btn-control">
+            <span class="icon">✨</span>
         </button>
         <div class="color-picker-container">
             <input type="color" id="color-picker" value="#00ffff">
         </div>
         <button id="stop-btn" class="btn-control stop">
             <span class="icon">⏹️</span>
-            <span class="label">Finish</span>
         </button>
     </div>
 
     <div id="post-controls" class="overlay-bottom hidden">
-        <button id="replay-btn" class="btn-secondary">Replay</button>
-        <button id="reset-btn" class="btn-secondary">Reset</button>
+        <button id="reset-btn" class="btn-secondary">Clear & Restart</button>
     </div>
 
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
             }
         }
     </script>
